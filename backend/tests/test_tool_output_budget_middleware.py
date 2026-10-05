@@ -209,6 +209,28 @@ class TestExternalize:
             assert path is not None
             assert path.endswith(".txt")
 
+    def test_reused_tool_call_id_preserves_each_turn_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kwargs = {
+                "tool_name": "bash",
+                "tool_call_id": "reused-call-id",
+                "outputs_path": tmpdir,
+                "storage_subdir": ".tool-results",
+            }
+            first_path = _externalize("first turn", **kwargs)
+            second_path = _externalize("second turn", **kwargs)
+
+            assert first_path is not None and second_path is not None
+            assert first_path != second_path
+            storage_dir = os.path.join(tmpdir, ".tool-results")
+            first_name = first_path.rsplit("/", 1)[-1]
+            second_name = second_path.rsplit("/", 1)[-1]
+            assert (pathlib.Path(storage_dir) / first_name).read_text() == "first turn"
+            assert (pathlib.Path(storage_dir) / second_name).read_text() == "second turn"
+
+            # Re-externalizing the same call and content remains idempotent.
+            assert _externalize("first turn", **kwargs) == first_path
+
 
 class TestSanitizeToolName:
     def test_strips_path_separators(self):

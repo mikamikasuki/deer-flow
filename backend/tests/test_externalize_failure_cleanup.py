@@ -96,18 +96,23 @@ def test_concurrent_externalizations_do_not_share_temporary_files(tmp_path, monk
             release_first.set()
         first_path = first.result(timeout=10)
 
-    assert first_path == "/mnt/user-data/outputs/sub/bash-same_call.log"
-    assert second_path == (None if second_publish_fails else first_path)
+    assert first_path is not None
+    if second_publish_fails:
+        assert second_path is None
+    else:
+        assert second_path is not None and second_path != first_path
     written = [p for p in tmp_path.rglob("*") if p.is_file()]
-    assert len(written) == 1
-    # The last successful publisher wins, without mixed bytes or leftover temps.
-    assert written[0].read_text(encoding="utf-8") == "A" * 1000
+    assert len(written) == (1 if second_publish_fails else 2)
+    contents = {path.read_text(encoding="utf-8") for path in written}
+    assert "A" * 1000 in contents
+    assert ("B" * 200 in contents) == (not second_publish_fails)
 
 
 def test_temporary_file_creation_failure_preserves_existing_output(tmp_path, monkeypatch):
     storage_dir = tmp_path / "sub"
     storage_dir.mkdir()
-    published = storage_dir / "bash-call_1.log"
+    filename = mw._build_externalized_filename(tool_name="bash", tool_call_id="call_1", content="New output")
+    published = storage_dir / filename
     published.write_text("Previous complete output", encoding="utf-8")
 
     def fail_to_create(*args, **kwargs):
@@ -135,12 +140,12 @@ from deerflow.agents.middlewares import tool_output_budget_middleware as mw
 
 os.umask(int(sys.argv[2]))
 kwargs = dict(tool_name="bash", tool_call_id="mode", outputs_path=sys.argv[1], storage_subdir="sub")
-assert mw._externalize("First complete output", **kwargs) is not None
-published = pathlib.Path(sys.argv[1]) / "sub/bash-mode.log"
-initial_mode = stat.S_IMODE(published.stat().st_mode)
-os.chmod(published, 0o600)
-assert mw._externalize("Second complete output", **kwargs) is not None
-print(json.dumps({"modes": [initial_mode, stat.S_IMODE(published.stat().st_mode)], "content": published.read_text(encoding="utf-8")}))
+first_path = mw._externalize("First complete output", **kwargs)
+second_path = mw._externalize("Second complete output", **kwargs)
+assert first_path is not None and second_path is not None
+first = pathlib.Path(sys.argv[1]) / "sub" / first_path.rsplit("/", 1)[-1]
+second = pathlib.Path(sys.argv[1]) / "sub" / second_path.rsplit("/", 1)[-1]
+print(json.dumps({"modes": [stat.S_IMODE(first.stat().st_mode), stat.S_IMODE(second.stat().st_mode)], "content": second.read_text(encoding="utf-8")}))
 """
     completed = subprocess.run([sys.executable, "-c", script, str(tmp_path), str(mask)], capture_output=True, text=True, timeout=30, check=True)
     observed = json.loads(completed.stdout)
@@ -153,7 +158,8 @@ def test_exclusive_creation_collision_preserves_other_writers_temp(tmp_path, mon
     storage_dir.mkdir()
     owned_by_other_writer = storage_dir / ".tool-output-collision.tmp"
     owned_by_other_writer.write_text("Other writer's pending output", encoding="utf-8")
-    published = storage_dir / "bash-call_1.log"
+    filename = mw._build_externalized_filename(tool_name="bash", tool_call_id="call_1", content="New output")
+    published = storage_dir / filename
     published.write_text("Previous complete output", encoding="utf-8")
     monkeypatch.setattr(mw, "uuid", SimpleNamespace(uuid4=lambda: SimpleNamespace(hex="collision")), raising=False)
 

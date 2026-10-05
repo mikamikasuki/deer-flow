@@ -182,7 +182,7 @@ def _sanitize_tool_call_id(tool_call_id: str) -> str:
     return _sanitize_tool_name(tool_call_id)
 
 
-def _build_externalized_filename(*, tool_name: str, tool_call_id: str) -> str:
+def _build_externalized_filename(*, tool_name: str, tool_call_id: str, content: str) -> str:
     """Build the on-disk filename for an externalized tool output.
 
     Shared by the host-disk and sandbox externalization paths so both
@@ -190,11 +190,12 @@ def _build_externalized_filename(*, tool_name: str, tool_call_id: str) -> str:
     """
     safe_name = _sanitize_tool_name(tool_name)
     ext = _EXT_MAP.get(tool_name, "txt")
-    # Derived from the call id so the host-disk and sandbox paths agree on one
-    # name for a given call, and so externalizing the same output twice is
-    # idempotent instead of leaving two files behind.
+    # Include the content digest because providers may reuse a tool_call_id in
+    # later assistant turns. Host-disk and sandbox paths still agree on one
+    # name for a given call and content, and retries remain idempotent.
     safe_id = _sanitize_tool_call_id(tool_call_id)
-    return f"{safe_name}-{safe_id}.{ext}"
+    content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+    return f"{safe_name}-{safe_id}-{content_digest}.{ext}"
 
 
 def _externalize(
@@ -214,7 +215,7 @@ def _externalize(
     except OSError:
         return None
 
-    filename = _build_externalized_filename(tool_name=tool_name, tool_call_id=tool_call_id)
+    filename = _build_externalized_filename(tool_name=tool_name, tool_call_id=tool_call_id, content=content)
     filepath = os.path.join(storage_dir, filename)
 
     if not os.path.abspath(filepath).startswith(os.path.abspath(storage_dir)):
@@ -299,7 +300,7 @@ def _externalize_to_sandbox(
     """
     if os.path.isabs(storage_subdir) or ".." in storage_subdir:
         return None
-    filename = _build_externalized_filename(tool_name=tool_name, tool_call_id=tool_call_id)
+    filename = _build_externalized_filename(tool_name=tool_name, tool_call_id=tool_call_id, content=content)
     virtual_dir = f"{_VIRTUAL_OUTPUTS_BASE}/{storage_subdir}"
     virtual_path = f"{virtual_dir}/{filename}"
     try:
