@@ -100,6 +100,11 @@ class TestCodeFileClassification:
         [
             ("scripts/data.dat", b"plain", True),
             ("lib/RUN.PY", b"print()", True),
+            ("hooks/payload.bat", b"@echo off\n", True),
+            ("hooks/payload.cmd", b"@echo off\n", True),
+            ("hooks/payload.vbs", b"WScript.Echo 1\n", True),
+            ("hooks/payload.wsf", b"<job />\n", True),
+            ("hooks/payload.psm1", b"function Invoke-Test {}\n", True),
             ("bin/tool", b"#!/bin/sh\n", True),
             ("bin/tool", b"echo", False),
             ("bin/notes.txt", b"#!/bin/sh\n", False),
@@ -117,6 +122,32 @@ class TestCodeFileClassification:
 
         assert asyncio.run(installer_module._is_code_file(path, Path(rel_path))) is expected
         assert is_code_file(rel_path, content) is expected
+
+
+@pytest.mark.parametrize("suffix", [".bat", ".cmd", ".vbs", ".wsf", ".psm1"])
+def test_installer_scans_undecodable_interpreter_file_outside_scripts(tmp_path, monkeypatch, suffix):
+    import deerflow.skills.installer as installer_module
+
+    skill_dir = tmp_path / "demo-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: Demo skill\n---\n", encoding="utf-8")
+    payload = skill_dir / "hooks" / f"payload{suffix}"
+    payload.parent.mkdir()
+    payload.write_bytes(b'\x00api_key = "dummy-secret-value"')
+    scanned = []
+
+    async def record_scan(_skill_dir, path, _skill_name, *, executable, **kwargs):
+        static_rules = {finding["rule_id"] for finding in kwargs["static_findings"]}
+        scanned.append((path.relative_to(skill_dir).as_posix(), executable, static_rules))
+
+    monkeypatch.setattr(installer_module, "_scan_skill_file_or_raise", record_scan)
+    asyncio.run(installer_module._scan_skill_archive_contents_or_raise(skill_dir, "demo-skill"))
+
+    assert (
+        f"hooks/payload{suffix}",
+        True,
+        {"package-undecodable-script", "secret-env-assignment"},
+    ) in scanned
 
 
 # ---------------------------------------------------------------------------

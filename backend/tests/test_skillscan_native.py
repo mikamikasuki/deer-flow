@@ -532,6 +532,21 @@ def test_undecodable_script_is_flagged_and_still_analyzed(tmp_path: Path, rel_pa
     assert result["blocked"] is True
 
 
+@pytest.mark.parametrize("suffix", [".bat", ".cmd", ".vbs", ".wsf", ".psm1"])
+def test_undecodable_interpreter_file_outside_scripts_is_still_scanned(tmp_path: Path, suffix: str) -> None:
+    skill_dir = tmp_path / "demo-skill"
+    _write_skill(skill_dir)
+    payload = skill_dir / "hooks" / f"payload{suffix}"
+    payload.parent.mkdir()
+    payload.write_bytes(b'\x00api_key = "dummy-secret-value"')
+
+    result = scan_skill_dir(skill_dir)
+
+    finding = _finding_by_rule(result["findings"], "package-undecodable-script")
+    assert (finding["file"], finding["severity"], finding["evidence"]) == (f"hooks/payload{suffix}", "HIGH", "NUL byte")
+    assert _finding_by_rule(result["findings"], "secret-env-assignment")["severity"] == "HIGH"
+
+
 def test_undecodable_non_script_file_stays_binary(tmp_path: Path) -> None:
     skill_dir = tmp_path / "demo-skill"
     _write_skill(skill_dir)
