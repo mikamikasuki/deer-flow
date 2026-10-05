@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 THINKING_BUDGET_RATIO = 0.8
+MIN_THINKING_BUDGET_TOKENS = 1024
 
 # Billing header required by Anthropic API for OAuth token access.
 # Must be the first system prompt block. Format mirrors Claude Code CLI.
@@ -262,17 +263,38 @@ class ClaudeChatModel(ChatAnthropic):
             container[index] = {**container[index], "cache_control": {"type": "ephemeral"}}
 
     def _apply_thinking_budget(self, payload: dict) -> None:
-        """Auto-allocate thinking budget (80% of max_tokens)."""
+        """Validate or auto-allocate a Claude manual thinking budget."""
         thinking = payload.get("thinking")
         if not thinking or not isinstance(thinking, dict):
             return
         if thinking.get("type") != "enabled":
             return
-        if thinking.get("budget_tokens"):
-            return
 
         max_tokens = payload.get("max_tokens", 8192)
-        thinking["budget_tokens"] = int(max_tokens * THINKING_BUDGET_RATIO)
+        headers = self.default_headers or {}
+        anthropic_beta = headers.get("anthropic-beta", "")
+        beta_values = {item.strip() for item in anthropic_beta.split(",")} if isinstance(anthropic_beta, str) else set()
+        uses_interleaved_thinking = self._is_oauth or "interleaved-thinking-2025-05-14" in beta_values
+        has_explicit_budget = "budget_tokens" in thinking
+        if has_explicit_budget:
+            budget_tokens = thinking["budget_tokens"]
+            if isinstance(budget_tokens, bool) or not isinstance(budget_tokens, int):
+                raise ValueError("Claude thinking budget_tokens must be an integer")
+            if budget_tokens < MIN_THINKING_BUDGET_TOKENS:
+                raise ValueError("Claude thinking budget_tokens must be at least 1024")
+            # OAuth and explicitly configured beta headers opt into Anthropic's
+            # interleaved mode, which permits budgets >= max_tokens.
+            if not uses_interleaved_thinking and budget_tokens >= max_tokens:
+                raise ValueError("Claude thinking budget_tokens must be less than max_tokens")
+            return
+
+        if not uses_interleaved_thinking and max_tokens <= MIN_THINKING_BUDGET_TOKENS:
+            raise ValueError("Claude max_tokens must exceed the 1024-token minimum thinking budget")
+
+        thinking["budget_tokens"] = max(
+            MIN_THINKING_BUDGET_TOKENS,
+            int(max_tokens * THINKING_BUDGET_RATIO),
+        )
 
     @staticmethod
     def _strip_cache_control(payload: dict) -> None:
