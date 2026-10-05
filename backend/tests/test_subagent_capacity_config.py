@@ -29,7 +29,12 @@ def test_subagent_runtime_defaults_are_safe_and_bounded() -> None:
 @pytest.mark.parametrize("value", [True, False])
 def test_subagent_runtime_integer_settings_reject_booleans(field: str, value: bool) -> None:
     with pytest.raises(ValidationError):
-        AppConfig.model_validate({"subagent_runtime": {field: value}})
+        AppConfig.model_validate(
+            {
+                "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"},
+                "subagent_runtime": {field: value},
+            }
+        )
 
 
 def test_subagent_runtime_integer_settings_keep_numeric_strings() -> None:
