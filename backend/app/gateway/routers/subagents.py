@@ -6,10 +6,11 @@ import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 
 from app.gateway.deps import is_admin_user, require_admin_user
 from app.gateway.persistent_writes import run_drained_write
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.app_config import get_app_config
 from deerflow.persistence.managed_subagents import (
     ManagedSubagentDefinition,
@@ -61,6 +62,11 @@ class ManagedSubagentCreateRequest(BaseModel):
     timeout_seconds: int = Field(default=900, ge=1)
     enabled: bool = True
 
+    @field_validator("max_turns", "timeout_seconds", mode="before")
+    @classmethod
+    def _reject_boolean_limits(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
+
 
 class ManagedSubagentUpdateRequest(BaseModel):
     display_name: str | None = None
@@ -73,6 +79,11 @@ class ManagedSubagentUpdateRequest(BaseModel):
     max_turns: int | None = Field(default=None, ge=1)
     timeout_seconds: int | None = Field(default=None, ge=1)
     enabled: bool | None = None
+
+    @field_validator("max_turns", "timeout_seconds", mode="before")
+    @classmethod
+    def _reject_boolean_limits(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 def _validate_model(model: str, app_config) -> None:

@@ -22,6 +22,39 @@ def _request(role: str):
     return SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(system_role=role)))
 
 
+@pytest.mark.parametrize(
+    ("request_model", "payload"),
+    [
+        (
+            router.ManagedSubagentCreateRequest,
+            {"name": "planner", "description": "Plans work", "system_prompt": "Plan the work."},
+        ),
+        (router.ManagedSubagentUpdateRequest, {}),
+    ],
+)
+@pytest.mark.parametrize("field", ["max_turns", "timeout_seconds"])
+@pytest.mark.parametrize("value", [True, False])
+async def test_managed_subagent_request_integer_limits_reject_booleans(request_model, payload, field, value):
+    with pytest.raises(ValueError, match=f"{field} must be an integer, not a boolean"):
+        request_model.model_validate({**payload, field: value})
+
+
+@pytest.mark.parametrize(
+    ("request_model", "payload"),
+    [
+        (
+            router.ManagedSubagentCreateRequest,
+            {"name": "planner", "description": "Plans work", "system_prompt": "Plan the work."},
+        ),
+        (router.ManagedSubagentUpdateRequest, {}),
+    ],
+)
+async def test_managed_subagent_request_integer_limits_preserve_integers(request_model, payload):
+    request = request_model.model_validate({**payload, "max_turns": 24, "timeout_seconds": 600})
+    assert request.max_turns == 24
+    assert request.timeout_seconds == 600
+
+
 @pytest.fixture(autouse=True)
 def _environment(tmp_path, monkeypatch):
     monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
