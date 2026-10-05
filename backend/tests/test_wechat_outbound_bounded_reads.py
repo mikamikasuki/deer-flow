@@ -37,6 +37,22 @@ def test_read_outbound_bytes_preserves_read_errors(tmp_path):
         _read_outbound_bytes(tmp_path / "missing.bin", 64)
 
 
+@pytest.mark.parametrize(
+    ("setting", "default"),
+    [
+        ("max_inbound_image_bytes", WechatChannel.DEFAULT_MAX_IMAGE_BYTES),
+        ("max_outbound_image_bytes", WechatChannel.DEFAULT_MAX_OUTBOUND_IMAGE_BYTES),
+        ("max_inbound_file_bytes", WechatChannel.DEFAULT_MAX_INBOUND_FILE_BYTES),
+        ("max_outbound_file_bytes", WechatChannel.DEFAULT_MAX_OUTBOUND_FILE_BYTES),
+    ],
+)
+@pytest.mark.parametrize("value", [False, True], ids=["false", "true"])
+def test_boolean_size_limit_uses_safe_default(setting, default, value):
+    channel = WechatChannel(bus=MessageBus(), config={setting: value})
+
+    assert getattr(channel, f"_{setting}") == default
+
+
 @pytest.mark.parametrize("is_image", [True, False], ids=["image", "file"])
 def test_send_attachment_rejects_over_limit_read_result(monkeypatch, tmp_path, is_image):
     path = tmp_path / ("chart.png" if is_image else "report.txt")

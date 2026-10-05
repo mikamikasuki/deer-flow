@@ -1642,6 +1642,8 @@ class WechatChannel(Channel):
 
     @staticmethod
     def _coerce_int(value: Any, default: int) -> int:
+        if isinstance(value, bool):
+            return default
         try:
             return int(value)
         except (TypeError, ValueError):
