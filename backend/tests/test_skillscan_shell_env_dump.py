@@ -79,11 +79,20 @@ def test_builtin_export_print_still_reports_environment_dump(tmp_path: Path) -> 
     assert "shell-env-dump" in _rules(tmp_path)
 
 
+def test_bash_variable_dump_builtins_still_report(tmp_path: Path) -> None:
+    """Bare `set` and export-print forms disclose environment-backed values."""
+    _write_script(
+        tmp_path,
+        "#!/bin/bash\nset\ndeclare -x\ntypeset -xp\ndeclare -p\n",
+    )
+    assert "shell-env-dump" in _rules(tmp_path)
+
+
 def test_non_dumping_command_prefixes_remain_unreported(tmp_path: Path) -> None:
     """Do not interpret wrapper words when they are arguments or invalid uses."""
     _write_script(
         tmp_path,
-        "#!/bin/bash\necho command env\n./command env\nbuiltin env\ncommand export -p\n",
+        "#!/bin/bash\necho command env\n./command env\nbuiltin env\ncommand export -p\nset -euo pipefail\nset -- value\ndeclare -x TOKEN=value\ndeclare -p TOKEN\n",
     )
     assert "shell-env-dump" not in _rules(tmp_path)
 
