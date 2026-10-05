@@ -920,6 +920,7 @@ DeerFlow 现在在 workspace 里内置了一个一等的定时任务（scheduled
 - 每个任务可以固定使用 `lead_agent`（默认）或当前用户已有的自定义 agent；未知名字会被拒绝
 - 将现有任务复制到创建表单中作为可编辑草稿，不复制运行历史
 - 支持 `once`、`cron` 和 `interval` 三种调度方式
+- 后端也会拒绝 `once` 调度中不带时区偏移的 `run_at` 所表示的夏令时不存在本地时间，避免 API 或已启用的调度工具静默改为另一个时间
 - 后台定时执行以非交互式 DeerFlow run 运行（那里不会暴露 `ask_clarification`）
 - 当所复用的 thread 或全局执行配额正忙时，到期执行会持久化为 `queued`，并在可用后启动；队列项在 Gateway 重启后保留，超过 `scheduler.queue_timeout_seconds` 后标记为失败
 - 当某次执行处于 `queued`、`launching` 或 `running` 时冻结任务定义，避免持久化的执行意外换用新的 prompt、thread 或调度；将任务切换为暂停或删除任务会取消已在等待的执行，而 `launching`/`running` 执行结束后才能重试这些变更；显式手动触发在调度已暂停时仍可等待并执行，且不会自动恢复调度

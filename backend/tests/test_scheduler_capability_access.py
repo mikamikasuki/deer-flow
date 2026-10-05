@@ -449,6 +449,11 @@ async def test_auth_disabled_default_owner_needs_the_explicit_host_mode(monkeypa
         {"schedule_type": "cron", "schedule_spec": {"cron": "not cron"}},
         {"context_mode": "wrong"},
         {"schedule_type": "once", "schedule_spec": {"run_at": (datetime.now(UTC) - timedelta(hours=1)).isoformat()}},
+        {
+            "schedule_type": "once",
+            "schedule_spec": {"run_at": "2027-03-14T02:30:00"},
+            "timezone": "America/New_York",
+        },
     ],
 )
 async def test_rest_and_tool_share_creation_validation_status_and_reason(monkeypatch, updates):

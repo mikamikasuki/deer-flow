@@ -2386,6 +2386,7 @@ Current MVP capabilities:
 
 - Manage tasks at `/workspace/scheduled-tasks`
 - One-time task forms reject local times skipped by daylight-saving transitions; select another time before creating or saving the task.
+- Backend creation also rejects nonexistent local times in naive `once` `run_at` values, so API and enabled schedule-tool callers cannot silently schedule a different wall time.
 - Choose whether each scheduled task reuses a thread and its conversation history or creates a fresh thread per run
 - Pin each task to `lead_agent` (default) or a custom agent the owner already has; unknown names are rejected
 - Sending `assistant_id: null` in a scheduled-task PATCH resets the task to `lead_agent`; omitting `assistant_id` preserves the current agent, including when that custom agent has since been deleted

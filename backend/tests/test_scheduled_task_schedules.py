@@ -51,6 +51,33 @@ def test_next_run_at_for_once_normalizes_naive_run_at_to_utc():
     assert result.utcoffset() == timedelta(0)
 
 
+def test_next_run_at_for_once_keeps_first_ambiguous_local_time_occurrence():
+    result = next_run_at(
+        "once",
+        {"run_at": "2026-11-01T01:30:00"},
+        "America/New_York",
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert result == datetime(2026, 11, 1, 5, 30, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("run_at", "timezone"),
+    [
+        ("2027-03-14T02:30:00", "America/New_York"),
+        ("2027-10-03T02:15:00", "Australia/Lord_Howe"),
+    ],
+)
+def test_next_run_at_for_once_rejects_nonexistent_local_time(run_at, timezone):
+    with pytest.raises(ValueError, match="nonexistent local time"):
+        next_run_at(
+            "once",
+            {"run_at": run_at},
+            timezone,
+            now=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+
 def test_next_run_at_for_once_normalizes_aware_run_at_to_utc():
     now = datetime(2026, 7, 31, 0, 0, tzinfo=UTC)
     result = next_run_at(
