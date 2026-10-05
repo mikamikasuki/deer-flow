@@ -406,14 +406,67 @@ async def test_stop_cancels_when_poller_exceeds_timeout():
         stop_timeout_seconds=0.05,
     )
 
-    async def _hang_forever():
+    started = asyncio.Event()
+
+    async def _hang_forever(*, now):
+        started.set()
         await asyncio.Event().wait()
 
-    worker._stop.clear()
-    worker._task = asyncio.create_task(_hang_forever())
-
+    worker.run_once = _hang_forever
+    await worker.start()
+    task = worker._task
+    await started.wait()
     await worker.stop()
+    await asyncio.gather(task, return_exceptions=True)
 
+    assert worker._task is None
+
+
+@pytest.mark.asyncio
+async def test_stop_returns_on_timeout_when_poller_suppresses_cancellation():
+    worker = NotificationDeliveryWorker(
+        delivery_repo=FakeDeliveryRepo([]),
+        resolve_channel=lambda _provider: None,
+        poll_interval_seconds=60,
+        stop_timeout_seconds=0.05,
+    )
+    started = asyncio.Event()
+    cancellation_received = asyncio.Event()
+    release = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    async def _delay_cancellation(*, now):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_received.set()
+            await release.wait()
+
+    worker.run_once = _delay_cancellation
+    await worker.start()
+    task = worker._task
+    await started.wait()
+    release_later = asyncio.create_task(asyncio.sleep(0.4))
+    release_later.add_done_callback(lambda _done: release.set())
+
+    try:
+        began = loop.time()
+        await worker.stop()
+        elapsed = loop.time() - began
+        await asyncio.sleep(0)
+
+        assert elapsed < 0.2
+        assert cancellation_received.is_set()
+        assert task is not None and not task.done()
+        assert worker._task is task
+        # A restart during the outstanding cancellation must not create a second poller.
+        await worker.start()
+        assert worker._task is task
+    finally:
+        await release_later
+        await asyncio.gather(task, return_exceptions=True)
+    await asyncio.sleep(0)
     assert worker._task is None
 
 

@@ -171,29 +171,41 @@ class NotificationDeliveryWorker:
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
-        if self._task is not None:
+        if self._task is not None and not self._task.done():
             return
+        self._task = None
         self._stop.clear()
-        self._task = asyncio.create_task(self._run_loop())
+        task = asyncio.create_task(self._run_loop())
+        self._task = task
+        task.add_done_callback(self._clear_task)
+
+    def _clear_task(self, task: asyncio.Task) -> None:
+        if self._task is task:
+            self._task = None
 
     async def stop(self) -> None:
         if self._task is None:
             return
         self._stop.set()
         task = self._task
-        self._task = None
         try:
-            await asyncio.wait_for(task, timeout=self._stop_timeout_seconds)
-        except TimeoutError:
-            logger.warning(
-                "Notification delivery worker stop exceeded %.1fs; cancelling in-flight poll",
-                self._stop_timeout_seconds,
-            )
+            done, _ = await asyncio.wait({task}, timeout=self._stop_timeout_seconds)
+        except asyncio.CancelledError:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            raise
+        if task in done:
+            await task
+            return
+
+        logger.warning(
+            "Notification delivery worker stop exceeded %.1fs; cancelling in-flight poll",
+            self._stop_timeout_seconds,
+        )
+        # Do not await after cancellation: an in-flight provider coroutine may
+        # suppress CancelledError, and asyncio.wait_for() would then exceed this
+        # shutdown bound while waiting for the task to finish cancellation.
+        # The task remains tracked until _clear_task observes its completion.
+        task.cancel()
 
     async def run_once(self, *, now: datetime) -> None:
         await self._recover_stale_sending(now)
