@@ -25,6 +25,20 @@ def test_subagent_runtime_defaults_are_safe_and_bounded() -> None:
         SubagentRuntimeConfig(max_queued=10_001)
 
 
+@pytest.mark.parametrize("field", ["max_running", "max_queued", "queue_timeout_seconds"])
+@pytest.mark.parametrize("value", [True, False])
+def test_subagent_runtime_integer_settings_reject_booleans(field: str, value: bool) -> None:
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({"subagent_runtime": {field: value}})
+
+
+def test_subagent_runtime_integer_settings_keep_numeric_strings() -> None:
+    config = SubagentRuntimeConfig(max_running="4", max_queued="0", queue_timeout_seconds="60")
+    assert config.max_running == 4
+    assert config.max_queued == 0
+    assert config.queue_timeout_seconds == 60
+
+
 def test_subagent_batch_defaults_separate_total_live_and_running() -> None:
     config = SubagentBatchesConfig()
     assert config.enabled is False
