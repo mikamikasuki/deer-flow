@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+from deerflow.config._boolean_guards import reject_boolean
 
 
 class RunOwnershipConfig(BaseModel):
@@ -41,6 +43,12 @@ class RunOwnershipConfig(BaseModel):
             "Extra seconds past lease expiry before an orphaned run is reclaimed. Also the clock-skew budget between workers — raise it if worker clocks are not tightly synced; cost is slower recovery of genuinely dead-worker runs."
         ),
     )
+
+    @field_validator("grace_seconds", mode="before")
+    @classmethod
+    def _reject_boolean_grace_seconds(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
+
     heartbeat_enabled: bool = Field(
         default=False,
         description="When True, the worker periodically renews leases on its active runs. Enable for multi-worker deployments (GATEWAY_WORKERS > 1).",
