@@ -67,6 +67,27 @@ def test_printenv_command_still_reports(tmp_path: Path) -> None:
     assert "shell-env-dump" in _rules(tmp_path)
 
 
+def test_command_wrapper_still_reports_environment_dump(tmp_path: Path) -> None:
+    """The shell `command` builtin still executes the external env utility."""
+    _write_script(tmp_path, "#!/bin/bash\ncommand env\ncommand printenv\n")
+    assert "shell-env-dump" in _rules(tmp_path)
+
+
+def test_builtin_export_print_still_reports_environment_dump(tmp_path: Path) -> None:
+    """`builtin export -p` prints the shell environment like plain `export -p`."""
+    _write_script(tmp_path, "#!/bin/bash\nbuiltin export -p\n")
+    assert "shell-env-dump" in _rules(tmp_path)
+
+
+def test_non_dumping_command_prefixes_remain_unreported(tmp_path: Path) -> None:
+    """Do not interpret wrapper words when they are arguments or invalid uses."""
+    _write_script(
+        tmp_path,
+        "#!/bin/bash\necho command env\n./command env\nbuiltin env\ncommand export -p\n",
+    )
+    assert "shell-env-dump" not in _rules(tmp_path)
+
+
 def test_export_p_still_reports(tmp_path: Path) -> None:
     _write_script(tmp_path, "#!/bin/bash\nexport -p\n")
     assert "shell-env-dump" in _rules(tmp_path)

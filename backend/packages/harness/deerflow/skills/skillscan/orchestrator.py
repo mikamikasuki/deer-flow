@@ -150,7 +150,9 @@ _DESTRUCTIVE_RM_RE = (
 # command: at the start of a line, right after a `;`, `&`, `|`, `(`, `)` or
 # backtick separator, after the `{` that opens a brace group (`{ env; }`, which
 # bash requires to be followed by whitespace), or after a reserved word that must
-# introduce a command (`then`, `do`, `exec`, ...). An `NAME=value` assignment
+# introduce a command (`then`, `do`, `exec`, ...). The detected command may use
+# `command` for `env`/`printenv`, or `builtin` for `export -p`; those wrappers
+# execute the same environment-dumping operation. An `NAME=value` assignment
 # prefix may come first. Anywhere else the word names something else -- a path in
 # `#!/usr/bin/env bash`, a host in `https://env.example.com`, a flag in
 # `--env FOO=1`, an argument in `echo env`, a variable in `${env}`, or comment
@@ -159,7 +161,7 @@ _DESTRUCTIVE_RM_RE = (
 # a command-looking line inside a heredoc body do not count either.
 _SHELL_ENV_DUMP_RE = re.compile(
     r"(?m)(?:^|(?<=[;&|()`])|\{(?=[ \t])|(?<![\w/.-])(?:if|then|elif|else|while|until|do|exec)\b[ \t]+)"
-    r"[ \t]*(?:[A-Za-z_]\w*=[^ \t]*[ \t]+)*(?P<cmd>env\b|printenv\b|export[ \t]+-p\b)"
+    r"[ \t]*(?:[A-Za-z_]\w*=[^ \t]*[ \t]+)*(?P<cmd>command[ \t]+(?:env|printenv)\b|builtin[ \t]+export[ \t]+-p\b|env\b|printenv\b|export[ \t]+-p\b)"
 )
 # The head of a heredoc redirection: `<<` or `<<-`, an optional quoted delimiter,
 # then the delimiter word. Requiring a leading letter/underscore keeps arithmetic
