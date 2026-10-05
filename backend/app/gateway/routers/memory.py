@@ -4,12 +4,13 @@ import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.gateway.authz import require_permission
 from app.gateway.internal_auth import get_trusted_internal_owner_user_id
 from app.gateway.persistent_writes import run_drained_write
 from deerflow.agents.memory import MemoryConflictError, MemoryCorruptionError, MemoryManager, get_memory_manager
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.agents_config import AGENT_NAME_PATTERN
 from deerflow.config.memory_config import get_memory_config
 from deerflow.config.paths import make_safe_user_id
@@ -225,6 +226,11 @@ class FactCreateRequest(BaseModel):
     category: str = Field(default="context", description="Fact category")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score (0-1)")
 
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _reject_boolean_confidence(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="a number")
+
 
 class FactPatchRequest(BaseModel):
     """PATCH request model that preserves existing values for omitted fields."""
@@ -232,6 +238,11 @@ class FactPatchRequest(BaseModel):
     content: str | None = Field(default=None, min_length=1, description="Fact content")
     category: str | None = Field(default=None, description="Fact category")
     confidence: float | None = Field(default=None, ge=0.0, le=1.0, description="Confidence score (0-1)")
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _reject_boolean_confidence(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="a number")
 
 
 class MemoryConfigResponse(BaseModel):

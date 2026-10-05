@@ -10,10 +10,11 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_current_user, get_feedback_repo, get_run_store
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.utils.thread_id import ThreadId
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,20 @@ class FeedbackCreateRequest(BaseModel):
     comment: str | None = Field(default=None, description="Optional text feedback")
     message_id: str | None = Field(default=None, description="Optional: scope feedback to a specific message")
 
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _reject_boolean_rating(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
+
 
 class FeedbackUpsertRequest(BaseModel):
     rating: int = Field(..., description="Feedback rating: +1 (positive) or -1 (negative)")
     comment: str | None = Field(default=None, description="Optional text feedback")
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _reject_boolean_rating(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 class FeedbackResponse(BaseModel):

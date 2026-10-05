@@ -10,7 +10,7 @@ from ipaddress import ip_address, ip_network
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 from starlette.responses import RedirectResponse
 
 from app.gateway.auth import (
@@ -37,6 +37,7 @@ from app.gateway.auth.user_provisioning import get_or_provision_oidc_user
 from app.gateway.csrf_middleware import CSRF_COOKIE_NAME, _request_origin, auth_csrf_cookie_settings, generate_csrf_token, is_secure_request
 from app.gateway.deps import get_current_user_from_request, get_local_provider
 from app.gateway.utils import constant_time_equals
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.auth_config import OIDCProviderConfig
 
 logger = logging.getLogger(__name__)
@@ -603,6 +604,11 @@ class PATCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=PAT_MAX_NAME_LENGTH)
     scopes: list[str] = Field(min_length=1)
     expires_in_days: int | None = Field(default=None, ge=1, le=365)  # None = never expires
+
+    @field_validator("expires_in_days", mode="before")
+    @classmethod
+    def _reject_boolean_expiration(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
     @field_validator("name")
     @classmethod

@@ -3,10 +3,11 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.gateway.deps import get_config, require_admin_user
 from deerflow.agents.lead_agent.prompt import refresh_skills_system_prompt_cache_async
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.app_config import AppConfig
 from deerflow.integrations.lark_cli import (
     LARK_AUTH_COMPLETE_DEFAULT_WAIT_SECONDS,
@@ -121,6 +122,11 @@ class LarkConfigCompleteRequest(BaseModel):
     brand: str = Field(default="feishu", description="Brand returned by config/start")
     interval: int | None = Field(default=None, description="Polling interval returned by config/start")
     expires_in: int | None = Field(default=None, description="Expiration returned by config/start")
+
+    @field_validator("interval", "expires_in", mode="before")
+    @classmethod
+    def _reject_boolean_oauth_numbers(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 class LarkConfigCompleteResponse(BaseModel):

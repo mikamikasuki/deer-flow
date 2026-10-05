@@ -240,3 +240,7 @@ Skill listing authorization mirrors the models pattern: `routers/skills.py` rout
 Batch workers pin `app.state.extensions`; never persist snapshots.
 
 Personal MCP uses owner-only files/calls; platform MCP stays shared.
+
+Gateway JSON request models reject booleans before numeric coercion on integer
+and float fields. Keep this guard when adding numeric request fields: `true` and
+`false` must not silently become `1` and `0`.

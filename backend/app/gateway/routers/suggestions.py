@@ -2,11 +2,12 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 import deerflow.utils.llm_text as llm_text
 from app.gateway.authz import _is_internal_caller, authorize_model_use, require_permission
 from app.gateway.deps import get_config, get_current_user_from_request
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.app_config import AppConfig
 from deerflow.config.suggestions_config import DEFAULT_MAX_SUGGESTIONS, MAX_SUGGESTIONS_LIMIT
 from deerflow.utils.oneshot_llm import run_oneshot_llm
@@ -26,6 +27,11 @@ class SuggestionsRequest(BaseModel):
     messages: list[SuggestionMessage] = Field(..., description="Recent conversation messages")
     n: int = Field(default=DEFAULT_MAX_SUGGESTIONS, ge=1, le=MAX_SUGGESTIONS_LIMIT, description="Number of suggestions to generate")
     model_name: str | None = Field(default=None, description="Optional model override")
+
+    @field_validator("n", mode="before")
+    @classmethod
+    def _reject_boolean_count(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 class SuggestionsResponse(BaseModel):

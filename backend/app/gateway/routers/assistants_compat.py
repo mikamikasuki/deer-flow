@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+from deerflow.config._boolean_guards import reject_boolean
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/assistants", tags=["assistants-compat"])
@@ -39,6 +41,11 @@ class AssistantSearchRequest(BaseModel):
     metadata: dict[str, Any] | None = None
     limit: int = Field(default=10, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)
+
+    @field_validator("limit", "offset", mode="before")
+    @classmethod
+    def _reject_boolean_pagination(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 def _get_default_assistant() -> AssistantResponse:

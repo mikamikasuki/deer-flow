@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.types import Overwrite
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from sqlalchemy.exc import IntegrityError
 
 from app.gateway.authz import require_permission
@@ -45,6 +45,7 @@ from app.gateway.services import (
 )
 from app.gateway.utils import sanitize_log_param
 from deerflow.agents.thread_state import THREAD_STATE_REDUCER_FIELDS
+from deerflow.config._boolean_guards import reject_boolean
 from deerflow.config.paths import Paths, get_paths
 from deerflow.config.summarization_config import ContextSize
 from deerflow.persistence.thread_meta import PROJECT_FILTER_UNSET, THREAD_ARCHIVED_METADATA_KEY, THREAD_PINNED_METADATA_KEY, THREAD_PROJECT_METADATA_KEY, ThreadOwnershipConflictError
@@ -479,6 +480,11 @@ class ThreadSearchRequest(BaseModel):
     offset: int = Field(default=0, ge=0, description="Pagination offset")
     status: str | None = Field(default=None, description="Filter by thread status")
 
+    @field_validator("limit", "offset", mode="before")
+    @classmethod
+    def _reject_boolean_pagination(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
+
     @field_validator("metadata")
     @classmethod
     def _validate_metadata_filters(cls, v: dict[str, Any]) -> dict[str, Any]:
@@ -550,6 +556,11 @@ class ThreadGoalRequest(BaseModel):
         description="Maximum automatic hidden continuation turns before stopping",
     )
 
+    @field_validator("max_continuations", mode="before")
+    @classmethod
+    def _reject_boolean_continuations(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
+
 
 class ThreadGoalResponse(BaseModel):
     """Response model for a thread goal."""
@@ -595,6 +606,11 @@ class ThreadHistoryRequest(BaseModel):
 
     limit: int = Field(default=10, ge=1, le=100, description="Maximum entries")
     before: str | None = Field(default=None, description="Cursor for pagination")
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def _reject_boolean_limit(cls, value: object, info: ValidationInfo) -> object:
+        return reject_boolean(value, info, kind="an integer")
 
 
 class ThreadBranchRequest(BaseModel):
