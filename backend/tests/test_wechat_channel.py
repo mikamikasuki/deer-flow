@@ -1023,6 +1023,90 @@ def test_handle_update_downloads_inbound_file(monkeypatch, tmp_path: Path):
     _run(go())
 
 
+def test_handle_update_preserves_same_name_inbound_files(monkeypatch, tmp_path: Path):
+    from app.channels.wechat import WechatChannel
+
+    async def go():
+        bus = MessageBus()
+        published = []
+
+        async def capture(msg):
+            published.append(msg)
+
+        bus.publish_inbound = capture  # type: ignore[method-assign]
+
+        aes_key = b"1234567890abcdef"
+        encrypt = WechatChannel.__dict__["_extract_file_item"].__globals__["_encrypt_aes_128_ecb"]
+        payloads = {
+            "https://cdn.weixin.qq.com/first.bin": b"FIRST DOCUMENT",
+            "https://cdn.weixin.qq.com/second.bin": b"SECOND DOCUMENT",
+            "https://cdn.weixin.qq.com/third.bin": b"THIRD DOCUMENT",
+        }
+        encrypted = {url: encrypt(content, aes_key) for url, content in payloads.items()}
+        channel = WechatChannel(bus=bus, config={"bot_token": "test-token", "state_dir": str(tmp_path)})
+
+        async def _fake_download(url: str, *, timeout: float | None = None, max_bytes: int | None = None):
+            return encrypted[url]
+
+        channel._download_cdn_bytes = _fake_download  # type: ignore[method-assign]
+
+        await channel._handle_update(
+            {
+                "message_type": 1,
+                "message_id": 307,
+                "from_user_id": "wx-user-1",
+                "context_token": "ctx-file-same-name",
+                "item_list": [
+                    {
+                        "type": 4,
+                        "file_item": {
+                            "file_name": "report.pdf",
+                            "aeskey": aes_key.hex(),
+                            "media": {"full_url": url},
+                        },
+                    }
+                    for url in list(payloads)[:2]
+                ],
+            }
+        )
+
+        assert len(published) == 1
+        files = published[0].files
+        assert [file_info["filename"] for file_info in files] == ["report.pdf", "report.pdf"]
+        paths = [Path(file_info["path"]) for file_info in files]
+        assert paths[0] != paths[1]
+        assert [path.read_bytes() for path in paths] == list(payloads.values())[:2]
+
+        await channel._handle_update(
+            {
+                "message_type": 1,
+                "message_id": 308,
+                "from_user_id": "wx-user-1",
+                "context_token": "ctx-file-later-same-name",
+                "item_list": [
+                    {
+                        "type": 4,
+                        "file_item": {
+                            "file_name": "report.pdf",
+                            "aeskey": aes_key.hex(),
+                            "media": {"full_url": "https://cdn.weixin.qq.com/third.bin"},
+                        },
+                    }
+                ],
+            }
+        )
+
+        assert len(published) == 2
+        later_file = published[1].files[0]
+        later_path = Path(later_file["path"])
+        assert later_file["filename"] == "report.pdf"
+        assert later_path not in paths
+        assert later_path.read_bytes() == b"THIRD DOCUMENT"
+        assert [path.read_bytes() for path in paths] == [b"FIRST DOCUMENT", b"SECOND DOCUMENT"]
+
+    _run(go())
+
+
 def test_handle_update_downloads_inbound_file_with_media_aeskey_hex(monkeypatch, tmp_path: Path):
     from app.channels.wechat import WechatChannel
 

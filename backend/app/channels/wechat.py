@@ -1286,7 +1286,12 @@ class WechatChannel(Channel):
             logger.warning("[WeChat] inbound file exceeds size limit (%d bytes), skipping message_id=%s", len(decrypted), message_id)
             return None
 
-        stored_path = await asyncio.to_thread(self._stage_downloaded_file, filename, decrypted)
+        stored_path = await asyncio.to_thread(
+            self._stage_downloaded_file,
+            filename,
+            decrypted,
+            staging_key=f"{message_id}\x00{index}",
+        )
         if stored_path is None:
             return None
 
@@ -1301,13 +1306,19 @@ class WechatChannel(Channel):
             "full_url": full_url,
         }
 
-    def _stage_downloaded_file(self, filename: str, content: bytes) -> Path | None:
+    def _stage_downloaded_file(self, filename: str, content: bytes, *, staging_key: str | None = None) -> Path | None:
         download_dir = self._download_dir()
         if download_dir is None:
             # Silent None here made an attachment vanish with no log line —
             # the same observability gap as a mislabeled skip reason.
             logger.warning("[WeChat] no state directory configured, dropping staged inbound media file %s", filename)
             return None
+        if staging_key is not None:
+            # Keep same-named attachments separate until ChannelManager consumes
+            # them, while preserving the original basename for display/upload.
+            # Hash the provider-controlled identity before using it as a path.
+            stage_id = hashlib.sha256(staging_key.encode("utf-8")).hexdigest()
+            download_dir = download_dir / stage_id
         try:
             download_dir.mkdir(parents=True, exist_ok=True)
             path = download_dir / filename
