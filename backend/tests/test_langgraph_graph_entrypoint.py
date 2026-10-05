@@ -23,7 +23,9 @@ def test_langgraph_graph_factory_is_a_concrete_lazy_module_export():
     """Match LangGraph Server's direct ``module.__dict__`` entrypoint lookup."""
     script = textwrap.dedent(
         """
+        import asyncio
         import importlib
+        import inspect
         import json
         import sys
         from pathlib import Path
@@ -37,6 +39,10 @@ def test_langgraph_graph_factory_is_a_concrete_lazy_module_export():
         assert callable(factory), (
             f"{module_name}:{variable_name} must be a concrete module export "
             "for LangGraph Server"
+        )
+        assert inspect.iscoroutinefunction(factory), (
+            "the LangGraph Server graph entrypoint must be awaitable so its "
+            "synchronous config and graph construction can run off-loop"
         )
         assert "deerflow.agents.lead_agent" not in sys.modules, (
             "publishing the graph factory must keep heavyweight agent imports lazy"
@@ -52,7 +58,7 @@ def test_langgraph_graph_factory_is_a_concrete_lazy_module_export():
         sys.modules[fake_prompt.__name__] = fake_prompt
 
         config_arg = {"configurable": {"thread_id": "test-thread"}}
-        assert factory(config_arg) == "graph"
+        assert asyncio.run(factory(config_arg)) == "graph"
         assert calls == [("prime", None), ("factory", config_arg)]
         """
     )
