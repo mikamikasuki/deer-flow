@@ -95,7 +95,7 @@ _GOAL_REASON_TEXT = {
     "external_wait": "it is waiting on something external",
     "goal_not_met_yet": "the goal is not met yet",
     "no_verdict": "no goal verdict was recorded",
-    "consecutive_unmet": "3 scheduled runs in a row did not meet the goal",
+    "consecutive_unmet": "3 eligible scheduled goal checks were unmet",
     "evaluator_failed": "the goal check could not run",
     "max_continuations_reached": "the continuation limit was reached",
     "no_progress_detected": "no progress was made between turns",

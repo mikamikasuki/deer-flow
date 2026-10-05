@@ -894,7 +894,7 @@ export const zhCN: Translations = {
       stopRequested: "本次执行请求停止该定时任务",
       lastPause: "上次暂停原因",
       agentStopped: "Agent 主动停止了该定时任务",
-      autoPaused: "连续 3 次定时执行未达成目标",
+      autoPaused: "3 次符合条件的定时目标评估未达成",
       lastUnmet: "上次未达成原因",
       reasons: {
         missingEvidence: "目标检查：缺少证据",

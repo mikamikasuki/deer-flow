@@ -27,6 +27,10 @@ const goalTask = {
   end_at: null,
   last_error: "stopped by the agent in run execution-stop",
 };
+const autoPausedTask = {
+  ...goalTask,
+  last_error: "paused after 3 unmet scheduled goal runs",
+};
 const plainTask = {
   ...baseTask,
   id: "plain-task",
@@ -170,4 +174,20 @@ test("goal outcomes use the Chinese copy", async ({ page }) => {
   await expect(
     rowOf(list, "execution-unmet").getByTestId("scheduled-run-goal"),
   ).toHaveText("目标检查：缺少证据");
+});
+
+test("auto-pause reason does not claim every scheduled execution was unmet", async ({
+  page,
+}) => {
+  await openTask(page, autoPausedTask, goalRuns);
+  await expect(page.getByTestId("scheduled-task-last-error")).toHaveText(
+    "Last pause reason: 3 eligible scheduled goal checks were unmet",
+  );
+});
+
+test("auto-pause reason uses accurate Chinese copy", async ({ page }) => {
+  await openTask(page, autoPausedTask, goalRuns, "zh-CN");
+  await expect(page.getByTestId("scheduled-task-last-error")).toHaveText(
+    "上次暂停原因: 3 次符合条件的定时目标评估未达成",
+  );
 });

@@ -145,7 +145,8 @@ def test_unmet_and_pause_notifications_have_distinct_safe_text():
     assert "needs_user_input" not in unmet
     assert "private raw failure" not in unmet
     assert "automatically paused" in paused
-    assert "Reason: 3 scheduled runs in a row did not meet the goal." in paused
+    assert "Reason: 3 eligible scheduled goal checks were unmet." in paused
+    assert "in a row" not in paused
     assert "consecutive_unmet" not in paused
     assert "completed" not in unmet + paused
 

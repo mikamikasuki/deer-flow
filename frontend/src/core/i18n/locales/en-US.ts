@@ -953,7 +953,7 @@ export const enUS: Translations = {
       stopRequested: "This run asked to stop the schedule",
       lastPause: "Last pause reason",
       agentStopped: "The agent stopped its own schedule",
-      autoPaused: "3 scheduled runs in a row did not meet the goal",
+      autoPaused: "3 eligible scheduled goal checks were unmet",
       lastUnmet: "Last unmet reason",
       reasons: {
         missingEvidence: "Goal check: evidence missing",
