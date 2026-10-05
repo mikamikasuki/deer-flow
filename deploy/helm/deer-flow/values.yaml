@@ -25,11 +25,12 @@ image:
 
 # -- Gateway (backend) deployment.
 gateway:
-  replicas: 1               # Safe default. Postgres + the Redis stream bridge are
-                            # wired, but multi-replica needs issue #3948's run-control
-                            # work (cancel/dedup/reconcile). Scheduler multi_instance
-                             # recovery is safe only when its config prerequisites are met;
-                             # max_concurrent_runs is shared across Pods in that mode.
+  replicas: 1               # Safe default. Above 1, the chart declares the topology
+                            # to the Gateway startup safety gate. Multi-replica still
+                            # needs issue #3948's run-control work (cancel/dedup/reconcile).
+                            # Scheduler multi_instance recovery is safe only when its
+                            # config prerequisites are met; max_concurrent_runs is shared
+                            # across Pods in that mode.
   # Pod termination grace period (seconds). MUST exceed the Gateway's graceful
   # shutdown work: channel stop (~5s) + memory queue drain
   # (memory.shutdown_flush_timeout_seconds, default 30s) + buffer. K8s defaults

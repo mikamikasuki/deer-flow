@@ -118,6 +118,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "deer-flow.appSecret" . }}
                   key: DEER_FLOW_INTERNAL_AUTH_TOKEN
+            {{- /* GATEWAY_WORKERS counts workers in this Pod only. Declare the
+                  replica topology so the Gateway startup gate checks its
+                  cross-process prerequisites before a multi-Pod rollout. */ -}}
+            {{- if gt (.Values.gateway.replicas | int) 1 }}
+            - name: DEER_FLOW_MULTI_INSTANCE
+              value: "1"
+            {{- end }}
             {{- /* PostgreSQL DSN — only mounted when postgres is configured
                   (bundled StatefulSet, external databaseUrl, or an existing
                   Secret). In sqlite/memory mode the env is omitted and

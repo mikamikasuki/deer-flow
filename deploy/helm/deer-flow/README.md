@@ -270,7 +270,10 @@ kubectl -n deer-flow exec deploy/deer-flow-provisioner -- curl -s localhost:8002
 - **Graceful shutdown & memory drain.** The gateway pod sets `terminationGracePeriodSeconds` (default 45s, overridable via `gateway.terminationGracePeriodSeconds`) plus an optional `preStop` sleep (`gateway.preStopSleepSeconds`, default 5s). The grace period MUST exceed the Gateway's graceful-shutdown work — channel stop (~5s) plus the memory-queue drain (`memory.shutdown_flush_timeout_seconds`, default 30s) plus a buffer — because the drain runs on a daemon thread and K8s SIGKILLs anything still running at the end of the grace window. K8s defaults to 30s, which SIGKILLs the drain mid-flight and silently re-introduces the memory loss the drain is fixing. **When you raise `memory.shutdown_flush_timeout_seconds`, raise `gateway.terminationGracePeriodSeconds` to match** (channel stop + drain + buffer).
 - **Gateway replicas.** Postgres + the Redis stream bridge together make the
   gateway's *persisted* state (checkpointer + run/thread metadata) and *live
-  stream* path cross-pod-safe. The default is still 1 replica: **do not raise
+  stream* path cross-pod-safe. When `gateway.replicas` is greater than 1, the
+  chart sets `DEER_FLOW_MULTI_INSTANCE=1` so Gateway startup validates the
+  cross-process database, run-event, lease, stream-bridge, and browser-tool
+  prerequisites. The default is still 1 replica: **do not raise
   `gateway.replicas` past 1 yet.** Run control — `create_or_reject` dedup,
   `cancel`, and orphan reconciliation — is still worker-local (in-process
   `asyncio.Lock` + in-memory `record.task`), tracked by [issue

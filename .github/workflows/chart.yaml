@@ -21,6 +21,7 @@ on:
       - "config.example.yaml"
       - ".github/workflows/chart.yaml"
       - "scripts/check_config_version.sh"
+      - "scripts/check_chart_multi_instance_gate.sh"
       - "scripts/check_chart_sandbox_service.sh"
       - "scripts/check_chart_sandbox_storage.sh"
       - "scripts/check_chart_skill_upload_size.sh"
@@ -44,6 +45,11 @@ jobs:
         run: helm lint deploy/helm/deer-flow
       - name: Validate templates render
         run: helm template deer-flow deploy/helm/deer-flow --include-crds >/dev/null
+
+      # The chart's Gateway replica count is not visible to the per-Pod worker
+      # count. Pass the multi-instance declaration when Helm creates peer Pods.
+      - name: Validate multi-instance startup-gate declaration
+        run: bash scripts/check_chart_multi_instance_gate.sh
 
       # Assert the sandbox Service-type gating: default emits
       # SANDBOX_SERVICE_TYPE=ClusterIP and no NODE_HOST; the NodePort opt-in
