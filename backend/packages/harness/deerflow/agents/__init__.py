@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from .features import Next, Prev, RuntimeFeatures
@@ -11,6 +12,7 @@ __all__ = [
     "Next",
     "Prev",
     "make_lead_agent",
+    "make_lead_agent_async",
     "SandboxState",
     "DeltaThreadState",
     "ThreadState",
@@ -29,6 +31,17 @@ def make_lead_agent(config: "RunnableConfig") -> Any:
 
     prime_enabled_skills_cache()
     return factory(config)
+
+
+async def make_lead_agent_async(config: "RunnableConfig") -> Any:
+    """Build the LangGraph Server graph without blocking its event loop.
+
+    Config discovery and hot-reload checks are synchronous filesystem work.
+    LangGraph Server awaits coroutine-valued graph factories, so keep the
+    synchronous factory available for embedded callers while moving the
+    server's construction path to a worker thread.
+    """
+    return await asyncio.to_thread(make_lead_agent, config)
 
 
 def __getattr__(name: str):
