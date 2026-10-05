@@ -2166,7 +2166,13 @@ def test_shutdown_keeps_aio_warm_entries_owned_when_idle_checker_stop_times_out(
     provider._warm_pool_identity = {"warm-retry": ("default", "thread-retry")}
     provider._stop_idle_checker = MagicMock(side_effect=[RuntimeError("reaper still alive"), None])
     provider._stop_lease_renewal = MagicMock()
-    provider._destroy_warm_entry = MagicMock()
+
+    def destroy_warm_entry(sandbox_id, _info, **_kwargs):
+        provider._warm_pool.pop(sandbox_id, None)
+        provider._warm_pool_identity.pop(sandbox_id, None)
+        return True
+
+    provider._destroy_warm_entry = MagicMock(side_effect=destroy_warm_entry)
     provider._ownership.close = MagicMock()
 
     with pytest.raises(RuntimeError, match="reaper still alive"):
@@ -2189,6 +2195,45 @@ def test_shutdown_keeps_aio_warm_entries_owned_when_idle_checker_stop_times_out(
     assert provider._warm_pool_identity == {}
 
 
+def test_shutdown_keeps_aio_warm_entry_tracked_when_destroy_fails(tmp_path):
+    """A failed warm-container stop must preserve ownership for shutdown retry."""
+    aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
+    provider = _make_provider(tmp_path)
+    provider._lock = threading.Lock()
+    provider._shutdown_called = False
+    provider._sandboxes = {}
+    provider._sandbox_infos = {}
+    provider._thread_sandboxes = {}
+    provider._active_sandbox_identity = {}
+    provider._last_activity = {}
+    info = aio_mod.SandboxInfo(sandbox_id="warm-destroy-retry", sandbox_url="http://warm-destroy-retry")
+    provider._warm_pool = {"warm-destroy-retry": (info, 1.0)}
+    provider._warm_pool_identity = {"warm-destroy-retry": ("default", "thread-retry")}
+    provider._stop_idle_checker = MagicMock()
+    provider._stop_lease_renewal = MagicMock()
+    provider._claim_ownership = MagicMock(return_value=True)
+    provider._held_teardown_lease = lambda _sandbox_id: contextlib.nullcontext()
+    destroy = MagicMock(side_effect=[RuntimeError("container stop failed"), None])
+    provider._backend = SimpleNamespace(destroy=destroy)
+    provider._ownership.close = MagicMock()
+
+    with pytest.raises(RuntimeError, match="warm-pool sandbox.*shutdown"):
+        provider.shutdown()
+
+    assert provider._shutdown_called is False
+    assert provider._warm_pool == {"warm-destroy-retry": (info, 1.0)}
+    assert provider._warm_pool_identity == {"warm-destroy-retry": ("default", "thread-retry")}
+    provider._ownership.close.assert_not_called()
+
+    provider.shutdown()
+
+    assert provider._shutdown_called is True
+    assert provider._warm_pool == {}
+    assert provider._warm_pool_identity == {}
+    assert destroy.call_count == 2
+    provider._ownership.close.assert_called_once_with()
+
+
 def test_shutdown_keeps_aio_warm_entries_owned_when_lease_renewal_stop_times_out(tmp_path):
     """A live renewal worker must keep AIO ownership attached for shutdown retry."""
     aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
@@ -2203,7 +2248,13 @@ def test_shutdown_keeps_aio_warm_entries_owned_when_lease_renewal_stop_times_out
     provider._warm_pool = {"warm-renewal-retry": (warm_info, 1.0)}
     provider._warm_pool_identity = {"warm-renewal-retry": ("default", "thread-retry")}
     provider._stop_idle_checker = MagicMock()
-    provider._destroy_warm_entry = MagicMock()
+
+    def destroy_warm_entry(sandbox_id, _info, **_kwargs):
+        provider._warm_pool.pop(sandbox_id, None)
+        provider._warm_pool_identity.pop(sandbox_id, None)
+        return True
+
+    provider._destroy_warm_entry = MagicMock(side_effect=destroy_warm_entry)
     provider._ownership.close = MagicMock()
 
     renewal_thread = MagicMock()

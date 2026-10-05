@@ -2057,8 +2057,9 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
         rather than silently reopen the window.
 
         Returns:
-            ``True`` when the container was stopped and the caller should drop
-            its warm-pool entry; ``False`` when it is still running.
+            ``True`` when the entry was stopped or is no longer owned by this
+            provider and the caller should drop its local reference; ``False``
+            when it is still running and remains owned here.
         """
         if not self._reserve_local_teardown(sandbox_id, still_reapable):
             logger.info("Refusing to destroy warm-pool sandbox %s for %s: reclaimed by this instance", sandbox_id, reason)
@@ -2067,6 +2068,15 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
         try:
             if not self._claim_ownership(sandbox_id, for_destroy=True):
                 logger.info("Refusing to destroy warm-pool sandbox %s for %s: owned by another instance", sandbox_id, reason)
+                if reason == "shutdown":
+                    # This instance no longer owns the container, so shutdown
+                    # must drop only its local warm-pool reference and continue.
+                    with self._lock:
+                        current = self._warm_pool.get(sandbox_id)
+                        if current is not None and current[0] is entry:
+                            self._warm_pool.pop(sandbox_id, None)
+                            self._warm_pool_identity.pop(sandbox_id, None)
+                    return True
                 return False
 
             try:
@@ -2687,8 +2697,6 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
         with self._lock:
             sandbox_ids = list(self._sandboxes.keys())
             warm_items = list(self._warm_pool.items())
-            self._warm_pool.clear()
-            self._warm_pool_identity.clear()
 
         logger.info(f"Shutting down {len(sandbox_ids)} active + {len(warm_items)} warm-pool sandbox(es)")
 
@@ -2698,13 +2706,24 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
             except Exception as e:
                 logger.error(f"Failed to destroy sandbox {sandbox_id} during shutdown: {e}")
 
+        failed_warm_ids: list[str] = []
         for sandbox_id, (info, _) in warm_items:
             # Route through _destroy_warm_entry so the ownership claim and the
-            # container stop stay together, as on the idle path. Unconditional
-            # here: the entries were removed from `_warm_pool` under the lock
-            # above, so the pool-membership predicate the other callers use would
-            # refuse every one of them.
-            self._destroy_warm_entry(sandbox_id, info, reason="shutdown", still_reapable=lambda: True)
+            # container stop stay together, as on the idle path. Keep each entry
+            # visible until that stop succeeds so a failed stop remains owned for
+            # a later shutdown retry.
+            if not self._destroy_warm_entry(
+                sandbox_id,
+                info,
+                reason="shutdown",
+                still_reapable=lambda sid=sandbox_id: sid in self._warm_pool,
+            ):
+                failed_warm_ids.append(sandbox_id)
+
+        if failed_warm_ids:
+            with self._lock:
+                self._shutdown_called = False
+            raise RuntimeError(f"Failed to destroy {len(failed_warm_ids)} warm-pool sandbox(es) during shutdown; ownership retained for retry")
 
         try:
             self._ownership.close()
