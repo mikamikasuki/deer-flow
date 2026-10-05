@@ -26,6 +26,24 @@ def test_mcp_task_runtime_is_disabled_by_default_and_bounded():
         McpTasksConfig(max_result_bytes=10)
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "poll_interval_seconds",
+        "max_concurrent_polls",
+        "max_poll_backoff_seconds",
+        "tracking_degraded_after_errors",
+    ],
+)
+def test_mcp_task_integer_settings_reject_booleans(field: str) -> None:
+    with pytest.raises(ValidationError):
+        McpTasksConfig(**{field: True})
+
+
+def test_mcp_task_integer_settings_keep_numeric_string_compatibility() -> None:
+    assert McpTasksConfig(tracking_degraded_after_errors="4").tracking_degraded_after_errors == 4
+
+
 def test_mcp_task_runtime_is_registered_as_startup_only():
     assert "mcp_tasks" in STARTUP_ONLY_FIELDS
     field = AppConfig.model_fields["mcp_tasks"]
