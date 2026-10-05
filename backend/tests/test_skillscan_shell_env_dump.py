@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from deerflow.skills.skillscan.orchestrator import scan_skill_dir
 
 
@@ -67,15 +69,24 @@ def test_printenv_command_still_reports(tmp_path: Path) -> None:
     assert "shell-env-dump" in _rules(tmp_path)
 
 
-def test_command_wrapper_still_reports_environment_dump(tmp_path: Path) -> None:
-    """The shell `command` builtin still executes the external env utility."""
-    _write_script(tmp_path, "#!/bin/bash\ncommand env\ncommand printenv\n")
-    assert "shell-env-dump" in _rules(tmp_path)
-
-
-def test_builtin_export_print_still_reports_environment_dump(tmp_path: Path) -> None:
-    """`builtin export -p` prints the shell environment like plain `export -p`."""
-    _write_script(tmp_path, "#!/bin/bash\nbuiltin export -p\n")
+@pytest.mark.parametrize(
+    "command",
+    [
+        "command env",
+        "command printenv",
+        "command export -p",
+        "builtin export -p",
+        "command set",
+        "builtin set",
+        "command declare -x",
+        "builtin declare -p",
+        "command typeset -xp",
+        "builtin typeset -xp",
+    ],
+)
+def test_wrapped_environment_dump_commands_are_reported(tmp_path: Path, command: str) -> None:
+    """Bash wrappers that really print environment-backed variables are reported."""
+    _write_script(tmp_path, f"#!/bin/bash\n{command}\n")
     assert "shell-env-dump" in _rules(tmp_path)
 
 
@@ -92,7 +103,23 @@ def test_non_dumping_command_prefixes_remain_unreported(tmp_path: Path) -> None:
     """Do not interpret wrapper words when they are arguments or invalid uses."""
     _write_script(
         tmp_path,
-        "#!/bin/bash\necho command env\n./command env\nbuiltin env\ncommand export -p\nset -euo pipefail\nset -- value\ndeclare -x TOKEN=value\ndeclare -p TOKEN\n",
+        "\n".join(
+            [
+                "#!/bin/bash",
+                "echo command env",
+                "./command env",
+                "builtin env",
+                "command export TOKEN=value",
+                "set -euo pipefail",
+                "set -- value",
+                "command set -- value",
+                "declare -x TOKEN=value",
+                "declare -p TOKEN",
+                "command declare -p TOKEN",
+                "builtin typeset -p TOKEN",
+                "",
+            ]
+        ),
     )
     assert "shell-env-dump" not in _rules(tmp_path)
 

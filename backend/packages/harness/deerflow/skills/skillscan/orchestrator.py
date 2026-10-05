@@ -151,10 +151,10 @@ _DESTRUCTIVE_RM_RE = (
 # backtick separator, after the `{` that opens a brace group (`{ env; }`, which
 # bash requires to be followed by whitespace), or after a reserved word that must
 # introduce a command (`then`, `do`, `exec`, ...). The detected command may use
-# `command` for `env`/`printenv`, or `builtin` for `export -p`; those wrappers
-# execute the same environment-dumping operation. Bare `set` and `declare`/
-# `typeset` export-print forms also dump variables. An `NAME=value` assignment
-# prefix may come first. Anywhere else the word names something else -- a path in
+# `command` / `builtin` wrappers for environment-printing commands are accepted
+# only where Bash actually executes the underlying command. Bare `set` and
+# `declare`/`typeset` export-print forms also dump variables. An `NAME=value`
+# assignment prefix may come first. Anywhere else the word names something else -- a path in
 # `#!/usr/bin/env bash`, a host in `https://env.example.com`, a flag in
 # `--env FOO=1`, an argument in `echo env`, a variable in `${env}`, or comment
 # text in `# export -p` -- and dumps nothing. The text this is matched against is
@@ -163,7 +163,11 @@ _DESTRUCTIVE_RM_RE = (
 _SHELL_ENV_DUMP_RE = re.compile(
     r"(?m)(?:^|(?<=[;&|()`])|\{(?=[ \t])|(?<![\w/.-])(?:if|then|elif|else|while|until|do|exec)\b[ \t]+)"
     r"[ \t]*(?:[A-Za-z_]\w*=[^ \t]*[ \t]+)*(?P<cmd>"
-    r"command[ \t]+(?:env|printenv)\b|builtin[ \t]+export[ \t]+-p\b|"
+    r"command[ \t]+(?:env|printenv)\b|"
+    r"(?:command|builtin)[ \t]+export[ \t]+-p\b|"
+    r"(?:command|builtin)[ \t]+set(?=[ \t]*(?:$|[;&|)]|(?:[0-9]+)?[<>]))|"
+    r"(?:command|builtin)[ \t]+(?:declare|typeset)[ \t]+-(?:x|p|xp|px)\b"
+    r"(?=[ \t]*(?:$|[;&|)]|(?:[0-9]+)?[<>]))|"
     r"env\b|printenv\b|export[ \t]+-p\b|"
     r"set(?=[ \t]*(?:$|[;&|)]|(?:[0-9]+)?[<>]))|"
     r"(?:declare|typeset)[ \t]+-(?:x|p|xp|px)\b"
