@@ -502,6 +502,9 @@ class AppConfig(BaseModel):
         # Check config version before processing
         cls._check_config_version(config_data, resolved_path)
 
+        legacy_checkpointer_configured = isinstance(config_data, Mapping) and config_data.get("checkpointer") is not None
+        database_configured = isinstance(config_data, Mapping) and config_data.get("database") is not None
+
         config_data = cls.resolve_env_variables(config_data)
         cls._apply_database_defaults(config_data)
 
@@ -522,6 +525,8 @@ class AppConfig(BaseModel):
         config_data["extensions"] = extensions_data
 
         result = cls.model_validate(config_data)
+        if legacy_checkpointer_configured and database_configured:
+            logger.warning("Legacy `checkpointer` section is configured and overrides `database` for the LangGraph checkpointer and Store only. Remove `checkpointer` to use the unified `database` configuration for those components.")
         if not result.models:
             logger.warning(
                 "No models are configured in %s. Add at least one entry under `models:` (see the commented examples in config.example.yaml) or run `make setup`.",

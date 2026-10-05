@@ -60,7 +60,10 @@ Infrastructure fields are **restart-required**. The authoritative list lives in 
 Gateway's LangGraph checkpointer, LangGraph Store, and DeerFlow SQL repositories.
 The deprecated `checkpointer` section remains backward compatible and, when
 present, overrides `database` for the LangGraph checkpointer and Store only;
-application repositories continue to use `database`.
+application repositories continue to use `database`. When both sections are
+explicitly configured in `config.yaml`, `AppConfig.from_file()` warns that the
+legacy section takes precedence and can be removed to use `database` for those
+LangGraph components.
 
 Configuration priority:
 1. Explicit `config_path` argument

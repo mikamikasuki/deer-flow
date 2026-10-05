@@ -206,6 +206,43 @@ def test_app_config_defaults_missing_database_to_sqlite(tmp_path, monkeypatch):
     assert config.database.sqlite_dir == ".deer-flow/data"
 
 
+def test_app_config_warns_when_legacy_checkpointer_overrides_database(tmp_path, monkeypatch, caplog):
+    config_path = tmp_path / "config.yaml"
+    extensions_path = tmp_path / "extensions_config.json"
+    _write_extensions_config(extensions_path)
+    _write_config_with_sections(
+        config_path,
+        {
+            "checkpointer": {"type": "sqlite", "connection_string": "checkpoints.db"},
+            "database": {"backend": "sqlite", "sqlite_dir": "new-data"},
+        },
+    )
+    monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(extensions_path))
+
+    config = AppConfig.from_file(str(config_path))
+    from deerflow.runtime.checkpointer.provider import _resolve_checkpointer_config
+    from deerflow.runtime.store.provider import _resolve_store_config
+
+    assert config.checkpointer.connection_string == "checkpoints.db"
+    assert config.database.sqlite_dir == "new-data"
+    assert _resolve_checkpointer_config(config).connection_string == "checkpoints.db"
+    assert _resolve_store_config(config).connection_string == "checkpoints.db"
+    assert "Legacy `checkpointer` section is configured and overrides `database`" in caplog.text
+    assert "Remove `checkpointer` to use the unified `database` configuration" in caplog.text
+
+
+def test_app_config_does_not_warn_when_only_legacy_checkpointer_is_configured(tmp_path, monkeypatch, caplog):
+    config_path = tmp_path / "config.yaml"
+    extensions_path = tmp_path / "extensions_config.json"
+    _write_extensions_config(extensions_path)
+    _write_config_with_sections(config_path, {"checkpointer": {"type": "sqlite", "connection_string": "checkpoints.db"}})
+    monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(extensions_path))
+
+    AppConfig.from_file(str(config_path))
+
+    assert "overrides `database`" not in caplog.text
+
+
 def test_app_config_preserves_config_yaml_extension_middlewares(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     extensions_path = tmp_path / "extensions_config.json"
