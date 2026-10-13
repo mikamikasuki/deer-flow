@@ -117,20 +117,19 @@ _TABLE_SEPARATOR_RE = re.compile(r"^\|[-:| ]+\|$", re.MULTILINE)
 
 
 def _split_markdown_table_row(row: str) -> list[str]:
-    r"""Keep escaped pipes and empty cells when removing the outer borders.
-
-    Known boundary: the single-character lookbehind in the split pattern
-    cannot distinguish an escaped pipe (``\|``) from an escaped backslash
-    immediately followed by a real separator (``\\|``). A cell ending in a
-    literal backslash therefore absorbs the next cell: ``| foo\\ | bar |``
-    splits as one cell instead of two. GFM counts consecutive backslashes
-    for this reason; doing so is out of scope here — this helper is
-    intentionally not a general Markdown parser.
-    """
-    # ``(?<!\\)`` inspects only one preceding character, so the second
-    # backslash of ``\\|`` is mistaken for an escaping backslash and the
-    # pipe is kept whole. See the boundary note in the docstring above.
-    cells = re.split(r"(?<!\\)\|", row.strip())
+    r"""Keep escaped pipes and empty cells when removing the outer borders."""
+    cells: list[str] = []
+    current: list[str] = []
+    backslashes = 0
+    for char in row.strip():
+        if char == "|" and backslashes % 2 == 0:
+            cells.append("".join(current).strip())
+            current.clear()
+            backslashes = 0
+            continue
+        current.append(char)
+        backslashes = backslashes + 1 if char == "\\" else 0
+    cells.append("".join(current).strip())
     if cells and cells[0] == "":
         cells.pop(0)
     if cells and cells[-1] == "":

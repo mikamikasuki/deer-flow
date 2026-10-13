@@ -1213,6 +1213,11 @@ class TestConvertMarkdownTable:
         text = f"{header}\n|---|---|\n{row}"
         assert _convert_markdown_table(text) == expected
 
+    def test_even_backslashes_before_pipe_keep_the_pipe_as_a_delimiter(self):
+        text = "| Path | Description |\n|---|---|\n| C:\\temp\\\\| temporary directory |"
+
+        assert _convert_markdown_table(text) == "> **Path**: C:\\temp\\\\\n> **Description**: temporary directory\n"
+
     def test_fallback_adapter_preserves_table_values(self):
         text = "| Rule | Meaning |\n|---|---|\n| `foo\\|bar` | alternative |"
         assert _adapt_markdown_for_dingtalk(text) == "> **Rule**: **foo\\|bar**\n> **Meaning**: alternative\n"
