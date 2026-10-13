@@ -2830,14 +2830,16 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
                 logger.info("Skipping destroy of sandbox %s: re-acquired by this instance or already being torn down", sandbox_id)
                 return False
             try:
-                return self._destroy_reserved(sandbox_id)
+                return self._destroy_reserved(sandbox_id, retain_on_failure=force)
             finally:
                 self._finish_local_teardown(sandbox_id)
 
-    def _destroy_reserved(self, sandbox_id: str) -> bool:
+    def _destroy_reserved(self, sandbox_id: str, *, retain_on_failure: bool = False) -> bool:
         with self._lock:
             sandbox = self._sandboxes.get(sandbox_id)
             info = self._sandbox_infos.get(sandbox_id)
+            if info is None and (warm_entry := self._warm_pool.get(sandbox_id)) is not None:
+                info = warm_entry[0]
         if getattr(sandbox, "has_pending_session_creates", False) is True or getattr(sandbox, "requires_container_recycle", False) is True:
             if info is None:
                 raise RuntimeError(f"Cannot quarantine sandbox {sandbox_id} without its runtime metadata")
@@ -2854,28 +2856,42 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
             logger.warning("Refusing to destroy sandbox %s: owned by another instance", sandbox_id)
             return False
 
-        sandbox, info, _ = self._remove_tracked_sandbox(sandbox_id)
-
-        if sandbox is not None:
-            # Defense-in-depth: close() already swallows its own errors; this
-            # guard only protects against a future close() that misbehaves, so
-            # host-side client cleanup can never block container destruction.
-            try:
-                sandbox.close()
-            except Exception as e:
-                logger.warning(f"Error closing sandbox {sandbox_id} during destroy: {e}")
+        if retain_on_failure and info is not None:
+            # Shutdown must keep active ownership intact until the backend
+            # confirms destruction. A failed stop leaves a usable entry for
+            # continued work and a later retry.
+            with self._held_teardown_lease(sandbox_id):
+                self._backend.destroy(info)
+                if sandbox is not None:
+                    try:
+                        sandbox.close()
+                    except Exception as e:
+                        logger.warning(f"Error closing sandbox {sandbox_id} during destroy: {e}")
+                self._remove_tracked_sandbox(sandbox_id, expected_info=info)
+            logger.info(f"Destroyed sandbox {sandbox_id}")
+            return True
 
         if info:
-            # The marker must outlast the stop, not the TTL it was written with,
-            # and the heartbeat releases it on exit — on both outcomes. On a
-            # failed stop the container is probably still up, so a marker left
-            # behind would refuse its own thread's `take()` until the TTL lapses;
-            # the error still propagates out of the `with` (`shutdown()` logs per
-            # sandbox off it), it is just no longer this method's job to release.
+            sandbox, info, _ = self._remove_tracked_sandbox(sandbox_id)
+            if sandbox is not None:
+                # Defense-in-depth: close() already swallows its own errors; this
+                # guard only protects against a future close() that misbehaves.
+                try:
+                    sandbox.close()
+                except Exception as e:
+                    logger.warning(f"Error closing sandbox {sandbox_id} during destroy: {e}")
+            # Keep the historical untrack-before-destroy order for ordinary
+            # recycle paths; shutdown uses the retryable branch above.
             with self._held_teardown_lease(sandbox_id):
                 self._backend.destroy(info)
             logger.info(f"Destroyed sandbox {sandbox_id}")
         else:
+            sandbox, _, _ = self._remove_tracked_sandbox(sandbox_id)
+            if sandbox is not None:
+                try:
+                    sandbox.close()
+                except Exception as e:
+                    logger.warning(f"Error closing sandbox {sandbox_id} during destroy: {e}")
             # No container to stop, so no teardown lease was held: clear the
             # marker the claim above wrote, so an untracked id cannot leave a
             # lease stuck in `del:`.
@@ -2916,6 +2932,7 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
 
         logger.info(f"Shutting down {len(sandbox_ids)} active + {len(warm_items)} warm-pool sandbox(es)")
 
+        failed_active_ids: list[str] = []
         for sandbox_id in sandbox_ids:
             try:
                 # Shutdown has stopped the maintenance workers and closes the
@@ -2923,6 +2940,7 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
                 self._destroy_tracked(sandbox_id, still_reapable=lambda: True, force=True)
             except Exception as e:
                 logger.error(f"Failed to destroy sandbox {sandbox_id} during shutdown: {e}")
+                failed_active_ids.append(sandbox_id)
 
         failed_warm_ids: list[str] = []
         for sandbox_id, (info, _) in warm_items:
@@ -2938,10 +2956,15 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
             ):
                 failed_warm_ids.append(sandbox_id)
 
-        if failed_warm_ids:
+        if failed_active_ids or failed_warm_ids:
             with self._lock:
                 self._shutdown_called = False
-            raise RuntimeError(f"Failed to destroy {len(failed_warm_ids)} warm-pool sandbox(es) during shutdown; ownership retained for retry")
+            failures = []
+            if failed_active_ids:
+                failures.append(f"{len(failed_active_ids)} active")
+            if failed_warm_ids:
+                failures.append(f"{len(failed_warm_ids)} warm-pool")
+            raise RuntimeError(f"Failed to destroy {' and '.join(failures)} sandbox(es) during shutdown; ownership retained for retry")
 
         try:
             self._ownership.close()

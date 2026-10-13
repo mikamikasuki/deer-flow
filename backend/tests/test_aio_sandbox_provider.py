@@ -3043,6 +3043,28 @@ def test_shutdown_closes_all_active_sandbox_clients(tmp_path):
     assert provider._sandboxes == {}
 
 
+def test_shutdown_keeps_aio_active_entry_tracked_when_destroy_fails(tmp_path):
+    """A failed active-container stop must preserve its live client for retry."""
+    provider, sandbox, _ = _make_provider_with_active_sandbox(tmp_path, "active-destroy-retry")
+    info = provider._sandbox_infos["active-destroy-retry"]
+    provider._backend.destroy.side_effect = [RuntimeError("container stop failed"), None]
+
+    with pytest.raises(RuntimeError, match="active sandbox.*shutdown"):
+        provider.shutdown()
+
+    assert provider._shutdown_called is False
+    assert provider._sandboxes == {"active-destroy-retry": sandbox}
+    assert provider._sandbox_infos == {"active-destroy-retry": info}
+    sandbox.close.assert_not_called()
+
+    provider.shutdown()
+
+    assert provider._backend.destroy.call_count == 2
+    assert provider._sandboxes == {}
+    assert provider._sandbox_infos == {}
+    sandbox.close.assert_called_once_with()
+
+
 @pytest.mark.asyncio
 async def test_reset_closes_acquire_serializer_executor(tmp_path):
     provider = _make_provider(tmp_path)
