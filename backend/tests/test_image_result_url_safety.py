@@ -43,3 +43,30 @@ def test_image_providers_reject_non_public_results(screen, url):
 def test_image_providers_keep_public_results_without_dns(screen, url):
     with patch("socket.getaddrinfo", side_effect=AssertionError("Result screening must not perform DNS")):
         assert screen(url) == url
+
+
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127{separator}0{separator}0{separator}1",
+        "localhost{separator}",
+        "metadata{separator}google{separator}internal",
+    ],
+)
+def test_image_providers_reject_unicode_dot_spellings(screen, separator, host):
+    import httpx
+
+    url = f"http://{host.format(separator=separator)}/image"
+    assert httpx.URL(url).host.rstrip(".") in {"127.0.0.1", "localhost", "metadata.google.internal"}
+    assert screen(url) == ""
+
+
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_image_providers_preserve_safe_unicode_hostname_separator(screen, separator):
+    import httpx
+
+    url = f"https://images{separator}example/image"
+    assert httpx.URL(url).host == "images.example"
+    with patch("socket.getaddrinfo", side_effect=AssertionError("Result screening must not perform DNS")):
+        assert screen(url) == url

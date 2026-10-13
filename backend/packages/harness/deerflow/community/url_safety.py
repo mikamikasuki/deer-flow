@@ -8,6 +8,7 @@ from collections.abc import Callable
 from urllib.parse import urlparse
 
 _BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal"}
+_UNICODE_DOT_TRANSLATION = str.maketrans({"\u3002": ".", "\uff0e": ".", "\uff61": "."})
 
 
 def safe_public_result_url(value: object) -> str:
@@ -26,7 +27,10 @@ def safe_public_result_url(value: object) -> str:
         return ""
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or not host:
         return ""
-    host = host.lower().rstrip(".")
+    # HTTP URL clients apply the UTS #46 separator mapping before connecting.
+    # Apply the same mapping before classifying the hostname so obfuscated IPs
+    # and blocked names cannot pass this result-only screen.
+    host = host.translate(_UNICODE_DOT_TRANSLATION).lower().rstrip(".")
     if not host or host in _BLOCKED_HOSTNAMES or host.endswith(".localhost"):
         return ""
 
