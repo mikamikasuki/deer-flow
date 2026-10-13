@@ -1071,6 +1071,96 @@ def test_reset_parks_active_and_shutdown_destroys_active_and_warm(monkeypatch: p
     assert provider._sandboxes == {} and provider._warm_pool == {}
 
 
+def test_shutdown_retains_sandbox_when_remote_destroy_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, sdk = _install(monkeypatch)
+    sandbox_id = provider.acquire("thread", user_id="user")
+    remote = sdk.remotes[0]
+    destroy_calls = 0
+    connect_calls = 0
+
+    def destroy() -> None:
+        nonlocal destroy_calls
+        destroy_calls += 1
+        if destroy_calls <= 2:
+            raise RuntimeError("remote stop failed")
+
+    def connect(remote_id: str, **_kwargs):
+        nonlocal connect_calls
+        connect_calls += 1
+        assert remote_id == remote.id
+        return remote
+
+    monkeypatch.setattr(remote, "destroy", destroy)
+    monkeypatch.setattr(sdk, "connect", connect, raising=False)
+
+    with pytest.raises(RuntimeError, match="ownership retained for retry"):
+        provider.shutdown()
+
+    assert provider._shutdown_called is True
+    assert provider._shutdown_cleanup_pending is True
+    assert provider._sandboxes[sandbox_id].is_closed
+    assert destroy_calls == 2
+    assert connect_calls == 1
+
+    provider.shutdown()
+
+    assert destroy_calls == 3
+    assert connect_calls == 2
+    assert provider._sandboxes == {} and provider._warm_pool == {}
+    assert provider._shutdown_cleanup_pending is False
+
+
+def test_shutdown_keeps_sandbox_when_reconnect_cannot_confirm_destroy(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, sdk = _install(monkeypatch)
+    sandbox_id = provider.acquire("thread", user_id="user")
+    remote = sdk.remotes[0]
+
+    def fail_destroy() -> None:
+        raise RuntimeError("remote stop failed")
+
+    def fail_connect(_remote_id: str, **_kwargs):
+        raise ConnectionError("management endpoint unavailable")
+
+    monkeypatch.setattr(remote, "destroy", fail_destroy)
+    monkeypatch.setattr(sdk, "connect", fail_connect, raising=False)
+
+    with pytest.raises(RuntimeError, match="ownership retained for retry"):
+        provider.shutdown()
+
+    assert provider._shutdown_cleanup_pending is True
+    assert sandbox_id in provider._sandboxes
+    assert provider._sandboxes[sandbox_id].is_closed
+
+    monkeypatch.setattr(remote, "destroy", lambda: None)
+    monkeypatch.setattr(sdk, "connect", lambda _remote_id, **_kwargs: remote, raising=False)
+    provider.shutdown()
+
+
+def test_shutdown_retains_warm_sandbox_when_remote_destroy_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, sdk = _install(monkeypatch)
+    sandbox_id = provider.acquire("thread", user_id="user")
+    provider.release(sandbox_id)
+    remote = sdk.remotes[0]
+
+    def fail_destroy() -> None:
+        raise RuntimeError("remote stop failed")
+
+    monkeypatch.setattr(remote, "destroy", fail_destroy)
+    monkeypatch.setattr(sdk, "connect", lambda _remote_id, **_kwargs: remote, raising=False)
+
+    with pytest.raises(RuntimeError, match="ownership retained for retry"):
+        provider.shutdown()
+
+    assert sandbox_id in provider._warm_pool
+    assert provider._warm_pool[sandbox_id][0].is_closed
+
+    monkeypatch.setattr(remote, "destroy", lambda: None)
+    provider.shutdown()
+
+    assert provider._warm_pool == {}
+    assert provider._shutdown_cleanup_pending is False
+
+
 def test_shutdown_stops_idle_reaper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(OpenSandboxProvider, "IDLE_CHECK_INTERVAL", 0.01)
     provider, _ = _install(monkeypatch, config={"idle_timeout": 60})

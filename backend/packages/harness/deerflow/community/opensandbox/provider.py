@@ -96,6 +96,7 @@ class OpenSandboxProvider(WarmPoolLifecycleMixin[OpenSandboxSandbox], SandboxPro
         self._idle_checker_stop = threading.Event()
         self._idle_checker_thread: threading.Thread | None = None
         self._shutdown_called = False
+        self._shutdown_cleanup_pending = False
         self._sdk: tuple[type[SandboxSync], type[ConnectionConfigSync], type[RunCommandOpts]] | None = None
         self._config = self._load_config()
         atexit.register(self.shutdown)
@@ -202,6 +203,38 @@ class OpenSandboxProvider(WarmPoolLifecycleMixin[OpenSandboxSandbox], SandboxPro
             sandbox.destroy()
         except Exception as exc:
             logger.warning("Error destroying OpenSandbox %s (%s): %s", sandbox.id, context, exc)
+
+    def _destroy_for_shutdown(self, sandbox: OpenSandboxSandbox) -> bool:
+        error: Exception | None = None
+        if not sandbox.is_closed:
+            try:
+                sandbox.destroy()
+                return True
+            except Exception as exc:
+                error = exc
+
+        # SandboxSync.destroy() closes its transport even when remote deletion
+        # fails. Reconnect by remote ID so shutdown can retry that deletion.
+        try:
+            sandbox_cls, connection_config_cls, _ = self._get_sdk()
+            remote = sandbox_cls.connect(
+                sandbox.remote_id,
+                connection_config=self._new_connection_config(connection_config_cls),
+                skip_health_check=True,
+            )
+            remote.destroy()
+            return True
+        except Exception as exc:
+            seen: set[int] = set()
+            current: BaseException | None = exc
+            while current is not None and id(current) not in seen:
+                seen.add(id(current))
+                if getattr(current, "status_code", None) in {404, 410}:
+                    return True
+                current = current.__cause__
+            error = exc
+        logger.warning("Error destroying OpenSandbox %s during shutdown: %s", sandbox.id, error)
+        return False
 
     def _invalidate_sandbox(self, sandbox_id: str, reason: str) -> None:
         with self._lock:
@@ -561,23 +594,46 @@ class OpenSandboxProvider(WarmPoolLifecycleMixin[OpenSandboxSandbox], SandboxPro
 
     def shutdown(self) -> None:
         with self._lock:
-            if self._shutdown_called:
+            if self._shutdown_called and not self._shutdown_cleanup_pending:
                 return
+            retry_cleanup = self._shutdown_cleanup_pending
             self._shutdown_called = True
+            self._shutdown_cleanup_pending = False
         try:
             self._stop_idle_checker()
         except Exception:
             with self._lock:
-                self._shutdown_called = False
+                if retry_cleanup:
+                    self._shutdown_cleanup_pending = True
+                else:
+                    self._shutdown_called = False
             raise
         with self._lock:
-            sandboxes = list(self._sandboxes.values()) + [entry for entry, _ in self._warm_pool.values()]
-            self._sandboxes.clear()
-            self._warm_pool.clear()
-            self._thread_sandboxes.clear()
+            sandboxes = {**self._sandboxes, **{sandbox_id: entry for sandbox_id, (entry, _) in self._warm_pool.items()}}
             self._acquire_serializer.close()
-        for sandbox in sandboxes:
-            self._destroy_quietly(sandbox, context="shutdown")
+        failed: list[tuple[str, OpenSandboxSandbox]] = []
+        for sandbox_id, sandbox in sandboxes.items():
+            if not self._destroy_for_shutdown(sandbox):
+                failed.append((sandbox_id, sandbox))
+                continue
+            with self._lock:
+                if self._sandboxes.get(sandbox_id) is sandbox:
+                    self._sandboxes.pop(sandbox_id, None)
+                warm_entry = self._warm_pool.get(sandbox_id)
+                if warm_entry is not None and warm_entry[0] is sandbox:
+                    self._warm_pool.pop(sandbox_id, None)
+                for key, value in list(self._thread_sandboxes.items()):
+                    if value == sandbox_id:
+                        self._thread_sandboxes.pop(key, None)
+
+        if failed:
+            failed_ids = [sandbox_id for sandbox_id, _ in failed]
+            with self._lock:
+                self._shutdown_cleanup_pending = True
+            raise RuntimeError("Failed to destroy OpenSandbox during shutdown; ownership retained for retry: " + ", ".join(failed_ids))
+
+        with self._lock:
+            self._thread_sandboxes.clear()
 
 
 __all__ = ["OpenSandboxProvider"]
