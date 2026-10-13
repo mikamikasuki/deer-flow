@@ -109,6 +109,7 @@ def test_provider_shutdown_resets_guard_when_idle_checker_stop_fails(module_name
     provider = provider_cls.__new__(provider_cls)
     provider._lock = threading.Lock()
     provider._shutdown_called = False
+    provider._shutdown_cleanup_pending = False
     warm_entry = object()
     provider._warm_pool = {"warm": (warm_entry, 1.0)}
     provider._stop_idle_checker = mock.Mock(side_effect=RuntimeError("reaper still alive"))
