@@ -208,6 +208,39 @@ def test_shutdown_racing_get_of_live_singleton_never_returns_none_or_torn(monkey
         sandbox_provider.reset_sandbox_provider()
 
 
+def test_failed_shutdown_keeps_provider_installed_for_retry(monkeypatch):
+    """A failed teardown must leave the provider reachable for a retry."""
+    sandbox_provider.reset_sandbox_provider()
+    _patch_provider_resolution(monkeypatch, cls=ShutdownSandboxProvider)
+    provider = sandbox_provider.get_sandbox_provider()
+    original_shutdown = provider.shutdown
+    attempts = 0
+
+    def fail_once() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("remote destroy failed")
+        original_shutdown()
+
+    monkeypatch.setattr(provider, "shutdown", fail_once)
+
+    try:
+        try:
+            sandbox_provider.shutdown_sandbox_provider()
+        except RuntimeError as exc:
+            assert str(exc) == "remote destroy failed"
+        else:
+            raise AssertionError("first shutdown should report the cleanup failure")
+
+        assert sandbox_provider.get_sandbox_provider() is provider
+        sandbox_provider.shutdown_sandbox_provider()
+        assert attempts == 2
+        assert sandbox_provider.get_initialized_sandbox_provider() is None
+    finally:
+        sandbox_provider.reset_sandbox_provider()
+
+
 def test_set_racing_get_never_returns_none_or_torn(monkeypatch):
     """``set_sandbox_provider()`` racing concurrent gets must never expose a
     ``None`` global: every getter sees a fully constructed provider."""

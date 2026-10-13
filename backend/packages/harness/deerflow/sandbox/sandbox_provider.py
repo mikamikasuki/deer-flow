@@ -261,15 +261,25 @@ def shutdown_sandbox_provider() -> None:
     """
     global _default_sandbox_provider
     # Detach the reference under the lock, then run the (potentially slow)
-    # `shutdown()` callback outside it (see the `_provider_lock` note).
+    # `shutdown()` callback outside it (see the `_provider_lock` note). If the
+    # callback fails, restore it when no replacement has been installed so the
+    # caller can retry cleanup instead of losing the provider that owns the
+    # resources.
     with _provider_lock:
         provider = _default_sandbox_provider
         _default_sandbox_provider = None
     if provider is not None and hasattr(provider, "shutdown"):
+        try:
+            provider.shutdown()
+        except BaseException:
+            with _provider_lock:
+                if _default_sandbox_provider is None:
+                    _default_sandbox_provider = provider
+            raise
+
         from deerflow.sandbox.lease import discard_sandbox_lease_manager
 
         discard_sandbox_lease_manager(provider)
-        provider.shutdown()
 
 
 def set_sandbox_provider(provider: SandboxProvider) -> None:
