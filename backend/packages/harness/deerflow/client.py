@@ -1765,7 +1765,7 @@ class DeerFlowClient:
                 or its filename is unsafe or reserved for upload staging.
         """
         validate_thread_id(thread_id)
-        from deerflow.uploads.companions import invalidate_overwritten_upload, register_companion
+        from deerflow.uploads.companions import invalidate_overwritten_upload, register_companion, resolve_companion
         from deerflow.utils.file_conversion import CONVERTIBLE_EXTENSIONS, convert_file_to_markdown
 
         # Validate all files upfront to avoid partial uploads.
@@ -1811,11 +1811,14 @@ class DeerFlowClient:
             for src_path, dest_name, claim_seed in resolved_files:
                 try:
                     conversion_source = None
+                    previous_companion = None
                     if src_path.suffix.lower() in CONVERTIBLE_EXTENSIONS:
                         if conversion_sources is None:
                             conversion_sources = tempfile.TemporaryDirectory(prefix="deerflow-upload-source-")
                         conversion_source = Path(conversion_sources.name) / dest_name
                     if dest_name in existing_names:
+                        if conversion_source is not None:
+                            previous_companion = resolve_companion(uploads_dir / dest_name)
                         if conversion_source is not None:
                             dest = copy_upload_file_no_symlink(uploads_dir, dest_name, src_path, snapshot_path=conversion_source)
                         else:
@@ -1846,7 +1849,16 @@ class DeerFlowClient:
                     # that collapse to the same .md (or a prior .md upload)
                     # cannot silently overwrite each other.
                     provisional_md_name = Path(dest_name).with_suffix(".md").name
-                    unique_md_name = claim_unique_filename(provisional_md_name, seen_names)
+                    if previous_companion is not None:
+                        unique_md_name = previous_companion.name
+                        seen_names.add(unique_md_name)
+                    else:
+                        # Existing files are not claims for original uploads:
+                        # those retain their explicit replacement behavior.
+                        # A generated companion, however, may only replace the
+                        # companion already owned by this source.
+                        unique_md_name = claim_unique_filename(provisional_md_name, seen_names | existing_names)
+                        seen_names.add(unique_md_name)
                     try:
                         # Convert the same private capture used to publish the
                         # original. Neither an external source edit nor a sandbox
@@ -1862,7 +1874,7 @@ class DeerFlowClient:
                                 # copy, not write_bytes: the companion keeps the
                                 # converter's permissions, so a sandbox running as
                                 # another uid can still read it.
-                                if unique_md_name in existing_names:
+                                if previous_companion is not None and unique_md_name in existing_names:
                                     md_path = copy_upload_file_no_symlink(uploads_dir, unique_md_name, converted)
                                 else:
                                     md_path = publish_upload_copy(uploads_dir, unique_md_name, converted, claim_seed=provisional_md_name, seen_names=seen_names)

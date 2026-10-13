@@ -3159,6 +3159,66 @@ class TestUploads:
             assert extract_outline_for_file(uploads_dir / "a.pdf") == ([], [])
             assert extract_outline_for_file(uploads_dir / "a_1.md")[0] == [{"title": "My notes", "line": 1}]
 
+    def test_upload_files_conversion_does_not_overwrite_authored_markdown(self, client, tmp_path):
+        """A converted companion must not replace a Markdown uploaded earlier."""
+        from openpyxl import Workbook
+
+        uploads_dir = tmp_path / "uploads"
+        uploads_dir.mkdir()
+        authored = tmp_path / "report.md"
+        authored.write_text("# User report\nKeep this content.\n", encoding="utf-8")
+        workbook_path = tmp_path / "report.xlsx"
+        workbook = Workbook()
+        workbook.active["A1"] = "Spreadsheet data"
+        workbook.save(workbook_path)
+        workbook.close()
+
+        with (
+            patch("deerflow.client.ensure_uploads_dir", return_value=uploads_dir),
+            patch("deerflow.client.get_uploads_dir", return_value=uploads_dir),
+        ):
+            first = client.upload_files("thread-1", [authored])
+            second = client.upload_files("thread-1", [workbook_path])
+
+        assert first["success"] is True
+        assert second["success"] is True
+        assert (uploads_dir / "report.md").read_text(encoding="utf-8") == "# User report\nKeep this content.\n"
+        assert second["files"][0]["markdown_file"] == "report_1.md"
+        from deerflow.uploads.companions import resolve_companion
+
+        assert resolve_companion(uploads_dir / "report.xlsx") == uploads_dir / "report_1.md"
+
+    def test_upload_files_replacement_updates_its_owned_markdown_companion(self, client, tmp_path):
+        """Replacing a source file may replace only its own prior companion."""
+        from openpyxl import Workbook
+
+        uploads_dir = tmp_path / "uploads"
+        uploads_dir.mkdir()
+        workbook_path = tmp_path / "report.xlsx"
+
+        def write_workbook(value: str) -> None:
+            workbook = Workbook()
+            workbook.active["A1"] = value
+            workbook.save(workbook_path)
+            workbook.close()
+
+        with (
+            patch("deerflow.client.ensure_uploads_dir", return_value=uploads_dir),
+            patch("deerflow.client.get_uploads_dir", return_value=uploads_dir),
+        ):
+            write_workbook("First version")
+            first = client.upload_files("thread-1", [workbook_path])
+            write_workbook("Second version")
+            second = client.upload_files("thread-1", [workbook_path])
+
+        assert first["files"][0]["markdown_file"] == "report.md"
+        assert second["files"][0]["filename"] == "report.xlsx"
+        assert second["files"][0]["markdown_file"] == "report.md"
+        assert "Second version" in (uploads_dir / "report.md").read_text(encoding="utf-8")
+        from deerflow.uploads.companions import resolve_companion
+
+        assert resolve_companion(uploads_dir / "report.xlsx") == uploads_dir / "report.md"
+
     def test_upload_files_failed_conversion_releases_the_claimed_markdown_name(self, client):
         """A conversion that writes nothing must not reserve stem.md against a later companion.
 
